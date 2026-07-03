@@ -1,8 +1,8 @@
 """
-THESIS ADVICE LINE — ENGINE
-A trimmed SimLearn variant for a single lesson: pairs of students, no
-asymmetric-information roles, nine quick decision rounds, a persistent
-"ask the professor" AI chat, and a closing writing task.
+THE BRAND BRIEF — ENGINE
+A trimmed SimLearn variant for a single lesson: one shared screen per group
+(no individual logins), nine quick decisions across three gated stages, a
+persistent "ask the professor" AI chat, and a closing writing task.
 
 Content lives in content.py — copy that file's shape for a new variant of
 this scenario; this file should not need scenario-specific edits.
@@ -11,7 +11,6 @@ this scenario; this file should not need scenario-specific edits.
 import streamlit as st
 import os
 import json
-import uuid
 import anthropic
 
 # =========================================================================
@@ -20,7 +19,6 @@ import anthropic
 
 TEACHER_PASSWORD = "business"
 CLASS_NAME = "default"
-PAIR_MAX = 2  # fixed — this scenario is pairs, not role-based groups
 
 from content import *  # noqa: F401,F403
 
@@ -68,7 +66,7 @@ def pairs_path(class_name):
 
 def new_pair_state():
     return {
-        "occupants": [],
+        "claimed": False,
         "notes": [],
         "decision_draft": {},  # decision_id -> {"choice": "A"/"B", "however": str}
         "phase_submitted": {},  # phase_id -> bool
@@ -78,7 +76,6 @@ def new_pair_state():
         "writing_peer_feedback": None,
         "writing_summative": None,
         "writing_outcome": None,
-        "left_students": False,
     }
 
 
@@ -110,11 +107,6 @@ def load_pairs(class_name):
 def save_pairs(class_name, pairs):
     with open(pairs_path(class_name), "w") as f:
         json.dump(pairs, f)
-
-
-def display_names(pstate):
-    names = [o["name"].strip() for o in pstate["occupants"] if o.get("name", "").strip()]
-    return " & ".join(names) if names else "—"
 
 
 def ai_reply(client, brief, history, user_message, enable_web_search=False):
@@ -183,8 +175,6 @@ if not st.session_state.class_authenticated:
 for key, default in [
     ("view", "pair_select"),
     ("pair", None),
-    ("my_id", None),
-    ("my_name", None),
     ("teacher_mode", False),
     ("teacher_authenticated", False),
 ]:
@@ -236,37 +226,28 @@ def teacher_dashboard():
     with st.expander("Show system prompt"):
         st.code(PROFESSOR_BRIEF)
 
-    st.subheader("Active Pairs")
+    st.subheader("Active Groups")
     for code in PAIR_CODENAMES:
         pstate = pairs[code]
-        if pstate["occupants"]:
+        if pstate["claimed"]:
             stages_done = sum(1 for p in PHASES if pstate["phase_submitted"].get(p["id"]))
-            st.write(f"**{code}** — {display_names(pstate)} — {stages_done}/{len(PHASES)} stages submitted")
-
-    st.subheader("Remove Individual Students")
-    for code in PAIR_CODENAMES:
-        pstate = pairs[code]
-        for occ in list(pstate["occupants"]):
-            if st.button(f"Remove {code} — {occ['name']}", key=f"rm_{code}_{occ['id']}"):
-                pstate["occupants"].remove(occ)
-                save_pairs(CLASS_NAME, pairs)
-                st.rerun()
+            st.write(f"**{code}** — {stages_done}/{len(PHASES)} stages submitted")
 
     st.subheader("Reset")
     col1, col2 = st.columns(2)
     with col1:
-        reset_code = st.selectbox("Pair to reset", PAIR_CODENAMES)
-        if st.button("Reset this pair"):
+        reset_code = st.selectbox("Group to reset", PAIR_CODENAMES)
+        if st.button("Reset this group"):
             pairs[reset_code] = new_pair_state()
             save_pairs(CLASS_NAME, pairs)
             st.success(f"{reset_code} reset.")
             st.rerun()
     with col2:
-        if st.button("⚠️ Reset ALL pairs"):
+        if st.button("⚠️ Reset ALL groups"):
             for code in PAIR_CODENAMES:
                 pairs[code] = new_pair_state()
             save_pairs(CLASS_NAME, pairs)
-            st.success("All pairs reset.")
+            st.success("All groups reset.")
             st.rerun()
 
 
@@ -275,73 +256,37 @@ if st.session_state.teacher_mode:
     st.stop()
 
 # =========================================================================
-# PAIR SELECTION + NAME ENTRY
+# GROUP SELECTION (one shared screen per group — no individual login)
 # =========================================================================
 
 def pair_select_view():
     st.title(SCENARIO_TITLE)
-    st.caption(f"{ORG_NAME} — choose your pair")
+    st.caption(f"{ORG_NAME} — as a group, choose one screen to work on together")
     pairs = load_pairs(CLASS_NAME)
 
     cols = st.columns(4)
     for i, code in enumerate(PAIR_CODENAMES):
         pstate = pairs[code]
-        count = len(pstate["occupants"])
         with cols[i % 4]:
-            if count < PAIR_MAX:
-                label = f"{code} ({count}/{PAIR_MAX})"
-                if count == 1:
-                    label += f" — {display_names(pstate)} joined"
-                if st.button(label, key=f"pair_{code}"):
-                    st.session_state.pair = code
-                    st.session_state.view = "name_entry"
-                    st.rerun()
-            else:
-                st.button(f"{code} ({count}/{PAIR_MAX}) — {display_names(pstate)}",
-                          key=f"pair_{code}_full", disabled=True)
-                for occ in pstate["occupants"]:
-                    if st.button(f"Rejoin as {occ['name']} ↩", key=f"rejoin_{code}_{occ['id']}"):
-                        st.session_state.pair = code
-                        st.session_state.my_id = occ["id"]
-                        st.session_state.my_name = occ["name"]
-                        st.session_state.view = "main"
-                        st.rerun()
-
-
-def name_entry_view():
-    st.title("What's your name?")
-    if st.button("← Back to pair selection"):
-        st.session_state.pair = None
-        st.session_state.view = "pair_select"
-        st.rerun()
-    name = st.text_input("Your name")
-    if st.button("Join"):
-        if name.strip():
-            pairs = load_pairs(CLASS_NAME)
-            pstate = pairs[st.session_state.pair]
-            new_id = str(uuid.uuid4())[:8]
-            pstate["occupants"].append({"name": name.strip(), "id": new_id})
-            save_pairs(CLASS_NAME, pairs)
-            st.session_state.my_id = new_id
-            st.session_state.my_name = name.strip()
-            st.session_state.view = "main"
-            st.rerun()
-        else:
-            st.warning("Please enter a name.")
+            label = f"{code} (in progress — click to continue)" if pstate["claimed"] else code
+            if st.button(label, key=f"pair_{code}"):
+                if not pstate["claimed"]:
+                    pstate["claimed"] = True
+                    save_pairs(CLASS_NAME, pairs)
+                st.session_state.pair = code
+                st.session_state.view = "main"
+                st.rerun()
 
 
 if st.session_state.view == "pair_select":
     pair_select_view()
     st.stop()
-elif st.session_state.view == "name_entry":
-    name_entry_view()
-    st.stop()
 
 # =========================================================================
-# MAIN APP (student has joined a pair)
+# MAIN APP (group has claimed a screen)
 # =========================================================================
 
-if not st.session_state.pair or not st.session_state.my_id:
+if not st.session_state.pair:
     st.session_state.view = "pair_select"
     st.rerun()
     st.stop()
@@ -351,9 +296,9 @@ pairs = load_pairs(CLASS_NAME)
 pstate = pairs[PAIR]
 
 st.title(SCENARIO_TITLE)
-st.caption(f"{ORG_NAME} — Pair: {PAIR} — You are {st.session_state.my_name}, with {display_names(pstate)}")
+st.caption(f"{ORG_NAME} — Group: {PAIR}")
 
-# --- Sidebar: Notes (shared between both partners) ---
+# --- Sidebar: Notes ---
 with st.sidebar:
     st.markdown("### 📝 Shared Notes")
     with st.form(key="note_form", clear_on_submit=True):
@@ -370,15 +315,6 @@ with st.sidebar:
         nc1.write(n)
         if nc2.button("✕", key=f"del_note_{idx}"):
             pstate["notes"].pop(idx)
-            save_pairs(CLASS_NAME, pairs)
-            st.rerun()
-
-    st.divider()
-    if st.button("🔄 Refresh (see partner's progress)"):
-        st.rerun()
-    if not pstate.get("left_students"):
-        if st.button("🚪 I have to leave"):
-            pstate["left_students"] = True
             save_pairs(CLASS_NAME, pairs)
             st.rerun()
 
@@ -472,7 +408,7 @@ for i, (phase, tab) in enumerate(zip(PHASES, phase_tabs)):
                         )
                     stage_instruction = f"""
 
-You have just received a written submission from the pair for Stage {i + 1} ({phase['label']}) of
+You have just received a written submission from the group for Stage {i + 1} ({phase['label']}) of
 planning their thesis. Reply warmly and in character, 4-6 sentences: comment genuinely on their
 reasoning, referencing something specific from what they wrote below, then {lookahead} Do not
 correct their English."""
@@ -519,13 +455,14 @@ with tab_writing:
             st.write(f"- {n}")
 
     st.markdown(f"""
-Write a {WRITING_TASK_LABEL} addressed to {WRITING_ADDRESSEE} (~{WRITING_WORD_TARGET} words).
+Write a short {WRITING_TASK_LABEL} (~{WRITING_WORD_TARGET} words) for the thesis direction your
+group has been shaping.
 
-Your email should:
-- Pull your reasoning across all three stages into ONE coherent proposal — not nine separate points
-- State clearly what direction you're proposing, and why
-- Acknowledge the strongest reason Prof. Dr. Brandt might push back, and answer it
-- Sound like a genuine, professional proposal email — polite, direct, and confident
+A good abstract:
+- Pulls your reasoning across all three stages into ONE coherent direction — not nine separate points
+- States the research question or aim clearly
+- Says how you'd actually investigate it (your methodology choice from Stage 3)
+- Acknowledges a real limitation of this direction, rather than pretending it has none
 
 Check your answers in the three Stage tabs if you need a reminder of what you chose.
 """)
@@ -543,21 +480,21 @@ Check your answers in the three Stage tabs if you need a reminder of what you ch
             st.warning("Please write something first.")
         else:
             prompt = f"""You are giving brief, encouraging formative feedback on a {LEVEL}-level Academic
-English {WRITING_TASK_LABEL}, written by a language learner. This is NOT a grade — it is peer-style
+English {WRITING_TASK_LABEL}, written by language learners. This is NOT a grade — it is peer-style
 feedback on a draft.
 
 Scenario context: {PEER_FEEDBACK_CONTEXT}
 
-The student's draft:
+The group's draft:
 {draft}
 
 Give 2-3 sentences of feedback: one genuine strength, and one specific, constructive suggestion focused
-on either clarity of recommendation, coherence across the three stages, or handling of the strongest
-counter-argument. Be warm and encouraging. Do not correct grammar.
+on either clarity of the research question, coherence across the three stages, or honest acknowledgment
+of a limitation. Be warm and encouraging. Do not correct grammar.
 
 Important:
-- Read the draft carefully. Do not say the student missed something if it is present, even if stated
-  briefly or informally.
+- Read the draft carefully. Do not say something is missing if it is present, even if stated briefly
+  or informally.
 - Credit the argument being made, not the format."""
             with st.spinner("Getting feedback..."):
                 feedback = call_claude(client, prompt, draft)
@@ -575,28 +512,30 @@ decides) for a {LEVEL}-level Academic English {WRITING_TASK_LABEL}.
 Scenario context:
 {FINAL_FEEDBACK_CONTEXT}
 
-The student already received this draft feedback:
+The group already received this draft feedback:
 {pstate['writing_peer_feedback']}
 
-The student's final submission:
+The group's final submission:
 {draft}
 
 Propose a grade band (Excellent / Good / Satisfactory / Needs Development), then give exactly one
 sentence of feedback on each of these three dimensions:
 
-1. **Coherence** — does the advice across all three stages add up to one clear recommendation, or does
+1. **Coherence** — does the reasoning across all three stages add up to one clear direction, or does
    it contradict itself?
-2. **Reasoning** — is the recommendation justified, not just stated?
-3. **Handling disagreement** — does it acknowledge a real reason Prof. Dr. Brandt might push back, and answer it?
+2. **Clarity of aim and method** — is the research question clear, and does the methodology actually
+   fit it?
+3. **Honesty about limitations** — does it acknowledge a real weakness or likely objection to this
+   direction, rather than glossing over it?
 
 Then give ONE overall development point — the single most useful thing to work on next. Do not repeat
 points already made. Do not correct grammar.
 
 Important:
-- Read the submission carefully before evaluating. Do not say the student missed something if it is
-  present, even if stated briefly or informally.
-- A student who takes a clear position and handles one real objection should score at least Good, even
-  if some rounds get less attention than others."""
+- Read the submission carefully before evaluating. Do not say something is missing if it is present,
+  even if stated briefly or informally.
+- A group that takes a clear position and is honest about one real limitation should score at least
+  Good, even if some stages get less attention than others."""
             with st.spinner("Grading..."):
                 summative = call_claude(client, prompt, draft, max_tokens=600)
             pstate["writing_summative"] = summative
@@ -606,32 +545,42 @@ Important:
     if pstate.get("writing_summative"):
         st.success(pstate["writing_summative"])
 
-        if st.button("Show what happened next"):
+        st.markdown("---")
+        st.markdown("##### How did it actually go?")
+        st.caption(
+            "Get a short, honest reflection on how this direction would likely have played out — "
+            "what would have worked, what challenges you'd likely have hit, and the real outcomes of "
+            "the choices your group made."
+        )
+        if st.button("See how it went"):
             choices_summary = "\n".join(
                 f"- {d['stimulus_title']}: "
                 f"{(d['optA'] if pstate['decision_draft'].get(d['id'], {}).get('choice') == 'A' else d['optB'] if pstate['decision_draft'].get(d['id'], {}).get('choice') == 'B' else '—')}"
                 f" (however: {pstate['decision_draft'].get(d['id'], {}).get('however', '').strip() or '—'})"
                 for p in PHASES for d in p["decisions"]
             )
-            prompt = f"""You are writing a short fictional "six weeks later" follow-up about how this
-thesis-planning process played out for the student(s) who made the choices below.
-Write it as a brief, warm, slightly wry update — like catching up with someone about how their plans
-actually unfolded — 150-200 words, past tense, second person ("you").
-Be specific — refer to the actual choices made below and show their realistic consequences.
+            prompt = f"""You are writing a short, honest "how it actually went" reflection on the
+thesis-planning choices a group of students made, listed below. This is NOT a story — it's a grounded,
+realistic reflection covering three things: (1) how the process would likely have worked out overall,
+(2) the specific challenges this combination of choices would likely have created, and (3) the real
+outcomes — what they'd have gained and what it would have cost them.
+150-200 words, second person plural ("you" / "your group"), grounded and specific — refer to the
+actual choices below, not generic advice.
 Show real trade-offs. Not purely positive, not purely negative.
-If the combination of choices was strategically weak, reflect that honestly but kindly.
+If the combination of choices was strategically weak or contradictory across stages, say so honestly
+but kindly — this is a rehearsal, and that's exactly the kind of thing worth learning from a rehearsal.
 
 BACKGROUND:
 {OUTCOME_PROMPT_CONTEXT}
 
 THE CHOICES MADE AND THE REASONING BEHIND THEM:
 {choices_summary}"""
-            with st.spinner("Writing the follow-up..."):
-                outcome = call_claude(client, prompt, "Write the update now.", max_tokens=400)
+            with st.spinner("Working out how it would have gone..."):
+                outcome = call_claude(client, prompt, "Write the reflection now.", max_tokens=400)
             pstate["writing_outcome"] = outcome
             save_pairs(CLASS_NAME, pairs)
             st.rerun()
 
     if pstate.get("writing_outcome"):
-        st.markdown("### What happened next")
+        st.markdown("### How it went")
         st.write(pstate["writing_outcome"])
