@@ -584,3 +584,22 @@ THE CHOICES MADE AND THE REASONING BEHIND THEM:
     if pstate.get("writing_outcome"):
         st.markdown("### How it went")
         st.write(pstate["writing_outcome"])
+
+        st.markdown("---")
+        st.caption("Want to try it with different choices?")
+        if st.button("🔁 Play again"):
+            # Clear cached widget values for this session — Streamlit remembers each
+            # widget's last value by key and ignores index=/value= on rerun, so a plain
+            # data reset alone wouldn't clear what's shown on screen.
+            for p in PHASES:
+                for d in p["decisions"]:
+                    st.session_state.pop(f"choice_{d['id']}", None)
+                    st.session_state.pop(f"however_{d['id']}", None)
+            st.session_state.pop("draft_box", None)
+            st.session_state.pop("writing_draft_box", None)
+            st.session_state.pop("prof_input", None)
+
+            pairs[PAIR] = new_pair_state()
+            pairs[PAIR]["claimed"] = True
+            save_pairs(CLASS_NAME, pairs)
+            st.rerun()
