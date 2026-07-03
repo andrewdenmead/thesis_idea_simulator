@@ -70,8 +70,7 @@ def new_pair_state():
     return {
         "occupants": [],
         "notes": [],
-        "current_round": 0,
-        "round_choices": {},
+        "decision_draft": {},  # decision_id -> {"choice": "A"/"B", "however": str}
         "professor_thread": [],
         "writing_draft": "",
         "writing_peer_feedback": None,
@@ -79,6 +78,14 @@ def new_pair_state():
         "writing_outcome": None,
         "left_students": False,
     }
+
+
+def sync_decision_note(notes_list, prefix, content):
+    """Keep a single, up-to-date note entry for a given decision instead of
+    appending a fresh duplicate every time the pair edits it."""
+    notes_list[:] = [n for n in notes_list if not n.startswith(prefix)]
+    if content:
+        notes_list.append(prefix + content)
 
 
 def load_pairs(class_name):
@@ -217,11 +224,12 @@ def teacher_dashboard():
         st.code(PROFESSOR_BRIEF)
 
     st.subheader("Active Pairs")
+    all_decision_ids = [d["id"] for p in PHASES for d in p["decisions"]]
     for code in PAIR_CODENAMES:
         pstate = pairs[code]
         if pstate["occupants"]:
-            rnd = min(pstate["current_round"] + 1, len(ROUNDS))
-            st.write(f"**{code}** — {display_names(pstate)} — round {rnd}/{len(ROUNDS)}")
+            done = sum(1 for did in all_decision_ids if pstate["decision_draft"].get(did, {}).get("choice"))
+            st.write(f"**{code}** — {display_names(pstate)} — {done}/{len(all_decision_ids)} decisions made")
 
     st.subheader("Remove Individual Students")
     for code in PAIR_CODENAMES:
@@ -363,8 +371,9 @@ with st.sidebar:
             st.rerun()
 
 # --- Tabs ---
-tab_context, tab_rounds, tab_professor, tab_writing = st.tabs(
-    ["Context", DECISIONS_TAB_HEADER, f"Ask {PROFESSOR_NAME.split()[-1]}", "Writing"]
+phase_tab_labels = [f"Stage {i+1}: {p['label']}" for i, p in enumerate(PHASES)]
+tab_context, *phase_tabs, tab_professor, tab_writing = st.tabs(
+    ["Context"] + phase_tab_labels + [f"Ask {PROFESSOR_NAME.split()[-1]}", "Writing"]
 )
 
 # --- Context Tab ---
@@ -373,40 +382,36 @@ with tab_context:
     st.warning(CONSTRAINT_TEXT)
     st.caption("Use the 📝 Shared Notes panel in the sidebar to save anything worth remembering.")
 
-# --- Advice Rounds Tab ---
-with tab_rounds:
-    current = pstate["current_round"]
+# --- Stage Tabs (one per phase, all tabs open from the start — no locking) ---
+for phase, tab in zip(PHASES, phase_tabs):
+    with tab:
+        st.caption(phase["intro"])
+        for d in phase["decisions"]:
+            st.markdown(f"#### {d['stimulus_type']}: {d['stimulus_title']}")
+            st.write(d["stimulus_body"])
+            st.markdown(f"**{d['prompt']}**")
 
-    if current > 0:
-        with st.expander(f"Review your earlier advice ({current}/{len(ROUNDS)} rounds done)"):
-            for r in ROUNDS[:current]:
-                choice = pstate["round_choices"].get(r["id"], {}).get("choice")
-                chosen_text = r["optA"] if choice == "A" else r["optB"] if choice == "B" else "—"
-                st.write(f"**{r['stimulus_title']}** → {chosen_text}")
+            draft = pstate["decision_draft"].get(d["id"], {"choice": None, "however": ""})
+            opts_display = [f"A — {d['optA']}", f"B — {d['optB']}"]
+            idx = 0 if draft.get("choice") == "A" else 1 if draft.get("choice") == "B" else None
+            choice_display = st.radio("Your advice:", opts_display, index=idx, key=f"choice_{d['id']}")
+            however_val = st.text_area(
+                HOWEVER_PROMPT, value=draft.get("however", ""), key=f"however_{d['id']}", height=70,
+            )
 
-    if current >= len(ROUNDS):
-        st.success("All nine rounds done. Head to the Writing tab to pull your advice together.")
-    else:
-        r = ROUNDS[current]
-        st.caption(f"Phase {r['phase']} — {r['phase_label']} · Round {current + 1} of {len(ROUNDS)}")
-        st.markdown(f"#### {r['stimulus_type']}: {r['stimulus_title']}")
-        st.write(r["stimulus_body"])
-        st.markdown(f"**{r['prompt']}**")
-
-        existing = pstate["round_choices"].get(r["id"], {}).get("choice")
-        opts_display = [f"A — {r['optA']}", f"B — {r['optB']}"]
-        idx = 0 if existing == "A" else 1 if existing == "B" else None
-        choice_display = st.radio("Your advice:", opts_display, index=idx, key=f"round_{r['id']}")
-
-        if st.button("Confirm and continue", key=f"confirm_{r['id']}"):
-            if choice_display is None:
-                st.warning("Choose A or B first.")
-            else:
-                letter = "A" if choice_display.startswith("A") else "B"
-                pstate["round_choices"][r["id"]] = {"choice": letter}
-                pstate["current_round"] = current + 1
+            letter = "A" if choice_display and choice_display.startswith("A") else (
+                "B" if choice_display and choice_display.startswith("B") else None
+            )
+            if letter != draft.get("choice") or however_val != draft.get("however", ""):
+                pstate["decision_draft"][d["id"]] = {"choice": letter, "however": however_val}
+                note_prefix = f"[{d['stimulus_title']}] "
+                note_content = (
+                    f"Chose: {d['optA'] if letter == 'A' else d['optB']} — However, {however_val.strip()}"
+                    if letter and however_val.strip() else None
+                )
+                sync_decision_note(pstate["notes"], note_prefix, note_content)
                 save_pairs(CLASS_NAME, pairs)
-                st.rerun()
+            st.divider()
 
 # --- Ask the Professor Tab ---
 with tab_professor:
@@ -440,12 +445,12 @@ with tab_writing:
 Write a {WRITING_TASK_LABEL} addressed to {WRITING_ADDRESSEE} (~{WRITING_WORD_TARGET} words).
 
 Your email should:
-- Pull your advice across all nine rounds into ONE coherent recommendation — not nine separate tips
+- Pull your advice across all three stages into ONE coherent recommendation — not nine separate tips
 - State clearly what you think Jonas should do next, and why
 - Acknowledge the strongest reason he might disagree with you, and answer it
 - Sound like a real message from a friend, not a formal report
 
-Check the round summary in the Advice Rounds tab if you need a reminder of what you chose.
+Check your answers in the three Stage tabs if you need a reminder of what you chose.
 """)
 
     if "writing_draft_box" not in st.session_state:
@@ -470,7 +475,7 @@ The student's draft:
 {draft}
 
 Give 2-3 sentences of feedback: one genuine strength, and one specific, constructive suggestion focused
-on either clarity of recommendation, coherence across the nine rounds, or handling of the strongest
+on either clarity of recommendation, coherence across the three stages, or handling of the strongest
 counter-argument. Be warm and encouraging. Do not correct grammar.
 
 Important:
@@ -502,7 +507,7 @@ The student's final submission:
 Propose a grade band (Excellent / Good / Satisfactory / Needs Development), then give exactly one
 sentence of feedback on each of these three dimensions:
 
-1. **Coherence** — does the advice across all nine rounds add up to one clear recommendation, or does
+1. **Coherence** — does the advice across all three stages add up to one clear recommendation, or does
    it contradict itself?
 2. **Reasoning** — is the recommendation justified, not just stated?
 3. **Handling disagreement** — does it acknowledge a real reason Jonas might push back, and answer it?
@@ -526,9 +531,10 @@ Important:
 
         if st.button("Show what happened next"):
             choices_summary = "\n".join(
-                f"- {r['stimulus_title']}: "
-                f"{'Option A — ' + r['optA'] if pstate['round_choices'].get(r['id'], {}).get('choice') == 'A' else 'Option B — ' + r['optB'] if pstate['round_choices'].get(r['id'], {}).get('choice') == 'B' else '—'}"
-                for r in ROUNDS
+                f"- {d['stimulus_title']}: "
+                f"{(d['optA'] if pstate['decision_draft'].get(d['id'], {}).get('choice') == 'A' else d['optB'] if pstate['decision_draft'].get(d['id'], {}).get('choice') == 'B' else '—')}"
+                f" (however: {pstate['decision_draft'].get(d['id'], {}).get('however', '').strip() or '—'})"
+                for p in PHASES for d in p["decisions"]
             )
             prompt = f"""You are writing a short fictional follow-up about Jonas, a final-year
 Business/Management student. Set six weeks after the events described.
