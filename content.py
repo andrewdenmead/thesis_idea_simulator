@@ -1,6 +1,6 @@
 """
 SCENARIO CONTENT — The Brand Brief
-Academic English, C1. One lesson, pairs of students.
+Academic English, C1. One lesson, one shared screen per group.
 
 Reframed from an earlier "advise a friend" version: students now work through
 their OWN (rehearsed, not literally submitted) thesis-planning process, using
@@ -13,9 +13,10 @@ About You) are used as scenario colour — companies BIB students realistically
 target for internships and thesis case studies — not as claims about those
 companies' actual internal decisions.
 
-Both partners in a pair share one view throughout — no asymmetric
-information split. They work through it together as if it were their own
-project, even though each will eventually write their own real thesis later.
+The whole group works from one shared screen throughout — no individual
+logins, no asymmetric information split. They work through it together as if
+it were their own project, even though each will eventually write their own
+real thesis later.
 """
 
 LEVEL = "C1"
@@ -38,12 +39,12 @@ gravitate toward: marketing and brand strategy at recognisable consumer brands �
 Nike, Puma, Zalando, About You — the kind of companies whose Berlin or DACH operations regularly \
 take on BIB interns and thesis partners.
 
-Working with your partner, you'll go through three stages — choosing a direction, evaluating \
-sources, designing the research — making three decisions at each stage and writing an honest \
-"however" for each one. At the end of every stage, you'll submit your reasoning to Prof. Dr. \
-Brandt, a marketing professor you're hoping might take you on as first supervisor — she'll give \
-you real feedback before the next stage unlocks. By the end, you'll write her the actual proposal \
-email.
+Working as a group on one shared screen, you'll go through three stages — choosing a direction, \
+evaluating sources, designing the research — making three decisions at each stage and writing an \
+honest "however" for each one. At the end of every stage, you'll submit your reasoning to Prof. \
+Dr. Brandt, a marketing professor you're hoping might take you on as first supervisor — she'll give \
+you real feedback before the next stage unlocks. By the end, you'll write a short abstract for the \
+thesis direction you've shaped together, and get a reflection on how it would likely have gone.
 """
 
 CONSTRAINT_TEXT = (
@@ -91,7 +92,7 @@ PHASES = [
             },
             {
                 "id": "D2",
-                "stimulus_type": "Voice note you sent your partner",
+                "stimulus_type": "Voice note you left yourself",
                 "stimulus_title": "The theory you can't stop thinking about",
                 "stimulus_body": (
                     "\"Ok so we did Keller's consumer-based brand equity model in the marketing "
@@ -219,7 +220,7 @@ PHASES = [
             },
             {
                 "id": "D8",
-                "stimulus_type": "Voice note you sent your partner",
+                "stimulus_type": "Voice note you left yourself",
                 "stimulus_title": "How do I actually collect the data",
                 "stimulus_body": (
                     "\"Ok so now I need to actually decide how I'm collecting data, and I keep going "
@@ -255,15 +256,15 @@ PHASES = [
 
 # Optional reference notes for the teacher dashboard — not shown to students.
 ROUND_TEACHER_NOTES = [
-    "D1 — Watch for pairs who default to 'safe' without questioning what they're actually excited to write about.",
-    "D2 — Good pairs will flag that a single-model thesis is a real academic risk, not just an enthusiasm problem.",
+    "D1 — Watch for groups who default to 'safe' without questioning what they're actually excited to write about.",
+    "D2 — Good groups will flag that a single-model thesis is a real academic risk, not just an enthusiasm problem.",
     "D3 — The interesting tension is data access vs. timeline risk, not 'prestige vs. no prestige.'",
-    "D4 — There's no wrong answer, but pairs should be able to say *why* their choice fits their argument.",
+    "D4 — There's no wrong answer, but groups should be able to say *why* their choice fits their argument.",
     "D5 — This is the round most likely to produce real disagreement — good, let it run.",
-    "D6 — Push pairs to name the specific trade-off (coverage vs. depth), not just pick intuitively.",
+    "D6 — Push groups to name the specific trade-off (coverage vs. depth), not just pick intuitively.",
     "D7 — Feasibility should visibly enter the reasoning here, not just 'which topic is more interesting.'",
     "D8 — Methodology choice should follow from the actual research question, not personal preference.",
-    "D9 — This round often reveals whether earlier choices were realistic — listen for pairs contradicting D3.",
+    "D9 — This round often reveals whether earlier choices were realistic — listen for groups contradicting D3.",
 ]
 
 # =========================================================================
@@ -275,17 +276,17 @@ PROFESSOR_TITLE = "Marketing Faculty — considering you as a thesis supervisee"
 
 PROFESSOR_INTRO = (
     "You have a standing line open to Prof. Dr. Brandt, a marketing professor at HTW Berlin who's "
-    "agreed to hear you out as a possible first supervisor. She hasn't committed yet — but if you "
-    "and your partner get stuck on something genuinely methodological or academic while shaping "
-    "your thesis, you can ask her directly. She can also look up real HTW Berlin BIB procedures — "
-    "deadlines, internship rules, how the application process works — if you ask."
+    "agreed to hear you out as a possible first supervisor. She hasn't committed yet — but if your "
+    "group gets stuck on something genuinely methodological or academic while shaping your thesis, "
+    "you can ask her directly. She can also look up real HTW Berlin BIB procedures — deadlines, "
+    "internship rules, how the application process works — if you ask."
 )
 
 PROFESSOR_BRIEF = f"""You are {PROFESSOR_NAME}, {PROFESSOR_TITLE}, at HTW Berlin's International
-Business faculty. You are being messaged by two BIB students (a pair, working together) who are
-rehearsing how they'd plan a marketing-focused bachelor thesis. They are considering asking you to
-be their first supervisor, and you are genuinely evaluating whether their thinking is sound — but
-you are also on their side and want to help them get there.
+Business faculty. You are being messaged by a group of BIB students working together, rehearsing how
+they'd plan a marketing-focused bachelor thesis. They are considering asking you to be their first
+supervisor, and you are genuinely evaluating whether their thinking is sound — but you are also on
+their side and want to help them get there.
 
 Your character:
 - Warm but rigorous. You enjoy a real question and will give a substantive, useful answer to it.
@@ -321,32 +322,30 @@ Using web search:
 # WRITING TASK
 # =========================================================================
 
-WRITING_TASK_LABEL = "thesis proposal email"
-WRITING_ADDRESSEE = PROFESSOR_NAME
+WRITING_TASK_LABEL = "thesis abstract"
 WRITING_WORD_TARGET = 180
 
 PEER_FEEDBACK_CONTEXT = (
-    "Two BIB students have spent a lesson rehearsing how they'd plan a marketing-focused bachelor "
-    "thesis, across three stages: choosing a direction, evaluating sources, and designing the "
-    "research. Each stage had three A/B decisions plus an honest 'however' about the risk in each "
-    "choice. They are now writing a proposal email to Prof. Dr. Brandt, pulling all of that "
-    "reasoning together into one coherent case for their thesis direction, and asking her to be "
-    "their first supervisor."
+    "A group of BIB students has spent a lesson rehearsing how they'd plan a marketing-focused "
+    "bachelor thesis, across three stages: choosing a direction, evaluating sources, and designing "
+    "the research. Each stage had three A/B decisions plus an honest 'however' about the risk in "
+    "each choice. They are now writing a short abstract pulling all of that reasoning together into "
+    "one coherent thesis direction."
 )
 
 FINAL_FEEDBACK_CONTEXT = PEER_FEEDBACK_CONTEXT
 
 OUTCOME_PROMPT_CONTEXT = """
-- A BIB student at HTW Berlin, final year, proposing a marketing thesis on brand loyalty and
-  authenticity among sportswear consumers in Germany.
+- A BIB student group at HTW Berlin proposing a marketing thesis on brand loyalty and authenticity
+  among sportswear consumers in Germany.
 - The single most consequential call: whether they kept their original topic idea or took the
   safer, pre-approved Zalando case study (D1), and whether they built the thesis around one
   theoretical model or used it as a supporting lens (D2).
 - Key people/organisations affected: Dr. Sorensen (seminar leader who flagged the safe option), and
   — if the internship switch was taken — Adidas' Berlin brand-activation team, who offered real
   access in exchange for a delayed start.
-- Hard constraint still in play six weeks later: the eight-week thesis-writing clock, and if the
-  internship switch was taken, a later-than-planned start to that clock.
+- Hard constraint still in play: the eight-week thesis-writing clock, and if the internship switch
+  was taken, a later-than-planned start to that clock.
 """
 
 # =========================================================================
