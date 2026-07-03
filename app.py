@@ -345,7 +345,7 @@ for i, (phase, tab) in enumerate(zip(PHASES, phase_tabs)):
 
         if submitted:
             st.success(f"**{PROFESSOR_NAME}'s feedback:**\n\n{pstate['phase_feedback'].get(phase['id'], '')}")
-            st.markdown("##### Your advice this stage")
+            st.markdown("##### Your choices this stage")
             for d in phase["decisions"]:
                 draft = pstate["decision_draft"].get(d["id"], {})
                 choice = draft.get("choice")
@@ -363,7 +363,7 @@ for i, (phase, tab) in enumerate(zip(PHASES, phase_tabs)):
                 draft = pstate["decision_draft"].get(d["id"], {"choice": None, "however": ""})
                 opts_display = [f"A — {d['optA']}", f"B — {d['optB']}"]
                 idx = 0 if draft.get("choice") == "A" else 1 if draft.get("choice") == "B" else None
-                choice_display = st.radio("Your advice:", opts_display, index=idx, key=f"choice_{d['id']}")
+                choice_display = st.radio("Your decision:", opts_display, index=idx, key=f"choice_{d['id']}")
                 however_val = st.text_area(
                     HOWEVER_PROMPT, value=draft.get("however", ""), key=f"however_{d['id']}", height=70,
                 )
