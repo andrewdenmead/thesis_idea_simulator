@@ -321,6 +321,11 @@ elif st.session_state.view == "name_entry":
 # MAIN APP (student has joined a pair)
 # =========================================================================
 
+if not st.session_state.pair or not st.session_state.my_id:
+    st.session_state.view = "pair_select"
+    st.rerun()
+    st.stop()
+
 PAIR = st.session_state.pair
 pairs = load_pairs(CLASS_NAME)
 pstate = pairs[PAIR]
