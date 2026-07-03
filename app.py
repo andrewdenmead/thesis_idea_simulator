@@ -589,8 +589,7 @@ THE CHOICES MADE AND THE REASONING BEHIND THEM:
         st.caption("Want to try it with different choices?")
         if st.button("🔁 Play again"):
             # Clear cached widget values for this session — Streamlit remembers each
-            # widget's last value by key and ignores index=/value= on rerun, so a plain
-            # data reset alone wouldn't clear what's shown on screen.
+            # widget's last value by key and ignores index=/value= on rerun.
             for p in PHASES:
                 for d in p["decisions"]:
                     st.session_state.pop(f"choice_{d['id']}", None)
@@ -602,4 +601,10 @@ THE CHOICES MADE AND THE REASONING BEHIND THEM:
             pairs[PAIR] = new_pair_state()
             pairs[PAIR]["claimed"] = True
             save_pairs(CLASS_NAME, pairs)
+
+            # Send them back through group selection rather than staying on this view —
+            # same as what happens if a teacher resets/removes them. The tabs widget
+            # then mounts fresh next time they click back in, landing on Context first
+            # rather than wherever the tab bar last happened to be.
+            st.session_state.view = "pair_select"
             st.rerun()
