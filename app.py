@@ -71,6 +71,8 @@ def new_pair_state():
         "occupants": [],
         "notes": [],
         "decision_draft": {},  # decision_id -> {"choice": "A"/"B", "however": str}
+        "phase_submitted": {},  # phase_id -> bool
+        "phase_feedback": {},  # phase_id -> professor's feedback text
         "professor_thread": [],
         "writing_draft": "",
         "writing_peer_feedback": None,
@@ -115,11 +117,22 @@ def display_names(pstate):
     return " & ".join(names) if names else "—"
 
 
-def ai_reply(client, brief, history, user_message):
+def ai_reply(client, brief, history, user_message, enable_web_search=False):
     full_system = brief + KEYWORD_GUARD_INSTRUCTION
     messages = history + [{"role": "user", "content": user_message}]
-    resp = client.messages.create(model=MODEL, max_tokens=300, system=full_system, messages=messages)
-    return resp.content[0].text
+    kwargs = dict(model=MODEL, max_tokens=300, system=full_system, messages=messages)
+    if enable_web_search:
+        kwargs["max_tokens"] = 700
+        kwargs["tools"] = [{
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "allowed_domains": ["htw-berlin.de"],
+            "max_uses": 3,
+        }]
+    resp = client.messages.create(**kwargs)
+    # With web search enabled, the response can include tool_use / tool_result blocks
+    # alongside text — concatenate only the text blocks for what gets shown to students.
+    return "".join(block.text for block in resp.content if getattr(block, "type", None) == "text")
 
 
 def call_claude(client, system, user_content, max_tokens=500):
@@ -224,12 +237,11 @@ def teacher_dashboard():
         st.code(PROFESSOR_BRIEF)
 
     st.subheader("Active Pairs")
-    all_decision_ids = [d["id"] for p in PHASES for d in p["decisions"]]
     for code in PAIR_CODENAMES:
         pstate = pairs[code]
         if pstate["occupants"]:
-            done = sum(1 for did in all_decision_ids if pstate["decision_draft"].get(did, {}).get("choice"))
-            st.write(f"**{code}** — {display_names(pstate)} — {done}/{len(all_decision_ids)} decisions made")
+            stages_done = sum(1 for p in PHASES if pstate["phase_submitted"].get(p["id"]))
+            st.write(f"**{code}** — {display_names(pstate)} — {stages_done}/{len(PHASES)} stages submitted")
 
     st.subheader("Remove Individual Students")
     for code in PAIR_CODENAMES:
@@ -382,40 +394,105 @@ with tab_context:
     st.warning(CONSTRAINT_TEXT)
     st.caption("Use the 📝 Shared Notes panel in the sidebar to save anything worth remembering.")
 
-# --- Stage Tabs (one per phase, all tabs open from the start — no locking) ---
-for phase, tab in zip(PHASES, phase_tabs):
+# --- Stage Tabs (gated — each stage unlocks after the previous is submitted) ---
+for i, (phase, tab) in enumerate(zip(PHASES, phase_tabs)):
     with tab:
+        if i > 0 and not pstate["phase_submitted"].get(PHASES[i - 1]["id"]):
+            st.info(
+                f"Complete Stage {i} and submit it to {PROFESSOR_NAME} first — this stage unlocks "
+                "once you have her feedback."
+            )
+            continue
+
         st.caption(phase["intro"])
-        for d in phase["decisions"]:
-            st.markdown(f"#### {d['stimulus_type']}: {d['stimulus_title']}")
-            st.write(d["stimulus_body"])
-            st.markdown(f"**{d['prompt']}**")
+        submitted = pstate["phase_submitted"].get(phase["id"], False)
 
-            draft = pstate["decision_draft"].get(d["id"], {"choice": None, "however": ""})
-            opts_display = [f"A — {d['optA']}", f"B — {d['optB']}"]
-            idx = 0 if draft.get("choice") == "A" else 1 if draft.get("choice") == "B" else None
-            choice_display = st.radio("Your advice:", opts_display, index=idx, key=f"choice_{d['id']}")
-            however_val = st.text_area(
-                HOWEVER_PROMPT, value=draft.get("however", ""), key=f"however_{d['id']}", height=70,
-            )
+        if submitted:
+            st.success(f"**{PROFESSOR_NAME}'s feedback:**\n\n{pstate['phase_feedback'].get(phase['id'], '')}")
+            st.markdown("##### Your advice this stage")
+            for d in phase["decisions"]:
+                draft = pstate["decision_draft"].get(d["id"], {})
+                choice = draft.get("choice")
+                chosen_text = d["optA"] if choice == "A" else d["optB"] if choice == "B" else "—"
+                st.write(f"**{d['stimulus_title']}** → {chosen_text}")
+                if draft.get("however", "").strip():
+                    st.caption(f"However: {draft['however'].strip()}")
+        else:
+            all_complete = True
+            for d in phase["decisions"]:
+                st.markdown(f"#### {d['stimulus_type']}: {d['stimulus_title']}")
+                st.write(d["stimulus_body"])
+                st.markdown(f"**{d['prompt']}**")
 
-            letter = "A" if choice_display and choice_display.startswith("A") else (
-                "B" if choice_display and choice_display.startswith("B") else None
-            )
-            if letter != draft.get("choice") or however_val != draft.get("however", ""):
-                pstate["decision_draft"][d["id"]] = {"choice": letter, "however": however_val}
-                note_prefix = f"[{d['stimulus_title']}] "
-                note_content = (
-                    f"Chose: {d['optA'] if letter == 'A' else d['optB']} — However, {however_val.strip()}"
-                    if letter and however_val.strip() else None
+                draft = pstate["decision_draft"].get(d["id"], {"choice": None, "however": ""})
+                opts_display = [f"A — {d['optA']}", f"B — {d['optB']}"]
+                idx = 0 if draft.get("choice") == "A" else 1 if draft.get("choice") == "B" else None
+                choice_display = st.radio("Your advice:", opts_display, index=idx, key=f"choice_{d['id']}")
+                however_val = st.text_area(
+                    HOWEVER_PROMPT, value=draft.get("however", ""), key=f"however_{d['id']}", height=70,
                 )
-                sync_decision_note(pstate["notes"], note_prefix, note_content)
-                save_pairs(CLASS_NAME, pairs)
-            st.divider()
+
+                letter = "A" if choice_display and choice_display.startswith("A") else (
+                    "B" if choice_display and choice_display.startswith("B") else None
+                )
+                if letter != draft.get("choice") or however_val != draft.get("however", ""):
+                    pstate["decision_draft"][d["id"]] = {"choice": letter, "however": however_val}
+                    note_prefix = f"[{d['stimulus_title']}] "
+                    note_content = (
+                        f"Chose: {d['optA'] if letter == 'A' else d['optB']} — However, {however_val.strip()}"
+                        if letter and however_val.strip() else None
+                    )
+                    sync_decision_note(pstate["notes"], note_prefix, note_content)
+                    save_pairs(CLASS_NAME, pairs)
+                if not letter or not however_val.strip():
+                    all_complete = False
+                st.divider()
+
+            if st.button(f"Submit Stage {i + 1} to {PROFESSOR_NAME}", key=f"submit_{phase['id']}"):
+                if not all_complete:
+                    st.warning("Please choose an option and write a however for every decision before submitting.")
+                else:
+                    next_phase = PHASES[i + 1] if i + 1 < len(PHASES) else None
+                    decisions_summary = "\n".join(
+                        f"- {d['stimulus_title']}: chose "
+                        f"\"{d['optA'] if pstate['decision_draft'][d['id']]['choice'] == 'A' else d['optB']}\" "
+                        f"— however, {pstate['decision_draft'][d['id']]['however'].strip()}"
+                        for d in phase["decisions"]
+                    )
+                    if next_phase:
+                        lookahead = (
+                            f"Give one concrete thing to keep in mind heading into Stage {i + 2} "
+                            f"({next_phase['label']}) — a consideration to hold onto, not the answer."
+                        )
+                    else:
+                        lookahead = (
+                            "Since this was the final stage, close with a genuine, encouraging note about "
+                            "their thinking so far, without previewing what should go in their proposal "
+                            "email."
+                        )
+                    stage_instruction = f"""
+
+You have just received a written submission from the pair for Stage {i + 1} ({phase['label']}) of
+planning their thesis. Reply warmly and in character, 4-6 sentences: comment genuinely on their
+reasoning, referencing something specific from what they wrote below, then {lookahead} Do not
+correct their English."""
+                    full_system = PROFESSOR_BRIEF + stage_instruction
+                    with st.spinner(f"Sending to {PROFESSOR_NAME}..."):
+                        feedback = call_claude(client, full_system, decisions_summary, max_tokens=350)
+                    pstate["phase_feedback"][phase["id"]] = feedback
+                    pstate["phase_submitted"][phase["id"]] = True
+                    save_pairs(CLASS_NAME, pairs)
+                    st.rerun()
 
 # --- Ask the Professor Tab ---
 with tab_professor:
     st.info(PROFESSOR_INTRO)
+    st.caption(
+        f"⚠️ {PROFESSOR_NAME} can look up real information from HTW Berlin's website when you ask "
+        "about actual BIB procedures, deadlines, or requirements. Treat her answers as a helpful "
+        "starting point, not the final word — always confirm anything that matters (deadlines, "
+        "forms, ECTS, submission rules) with the real BIB Administration Office before relying on it."
+    )
     thread = pstate["professor_thread"]
     for msg in thread:
         if msg["role"] == "user":
@@ -428,7 +505,7 @@ with tab_professor:
         prof_sent = st.form_submit_button("Send")
     if prof_sent and prof_msg.strip():
         history = [{"role": m["role"], "content": m["content"]} for m in thread]
-        ai_text = ai_reply(client, PROFESSOR_BRIEF, history, prof_msg.strip())
+        ai_text = ai_reply(client, PROFESSOR_BRIEF, history, prof_msg.strip(), enable_web_search=True)
         thread.append({"role": "user", "content": prof_msg.strip()})
         thread.append({"role": "assistant", "content": ai_text})
         pstate["professor_thread"] = thread
@@ -445,10 +522,10 @@ with tab_writing:
 Write a {WRITING_TASK_LABEL} addressed to {WRITING_ADDRESSEE} (~{WRITING_WORD_TARGET} words).
 
 Your email should:
-- Pull your advice across all three stages into ONE coherent recommendation — not nine separate tips
-- State clearly what you think Jonas should do next, and why
-- Acknowledge the strongest reason he might disagree with you, and answer it
-- Sound like a real message from a friend, not a formal report
+- Pull your reasoning across all three stages into ONE coherent proposal — not nine separate points
+- State clearly what direction you're proposing, and why
+- Acknowledge the strongest reason Prof. Dr. Brandt might push back, and answer it
+- Sound like a genuine, professional proposal email — polite, direct, and confident
 
 Check your answers in the three Stage tabs if you need a reminder of what you chose.
 """)
@@ -510,7 +587,7 @@ sentence of feedback on each of these three dimensions:
 1. **Coherence** — does the advice across all three stages add up to one clear recommendation, or does
    it contradict itself?
 2. **Reasoning** — is the recommendation justified, not just stated?
-3. **Handling disagreement** — does it acknowledge a real reason Jonas might push back, and answer it?
+3. **Handling disagreement** — does it acknowledge a real reason Prof. Dr. Brandt might push back, and answer it?
 
 Then give ONE overall development point — the single most useful thing to work on next. Do not repeat
 points already made. Do not correct grammar.
@@ -536,18 +613,18 @@ Important:
                 f" (however: {pstate['decision_draft'].get(d['id'], {}).get('however', '').strip() or '—'})"
                 for p in PHASES for d in p["decisions"]
             )
-            prompt = f"""You are writing a short fictional follow-up about Jonas, a final-year
-Business/Management student. Set six weeks after the events described.
-Write it as a brief, warm, slightly wry personal update — as if a mutual friend is catching you up —
-150-200 words, past tense.
+            prompt = f"""You are writing a short fictional "six weeks later" follow-up about how this
+thesis-planning process played out for the student(s) who made the choices below.
+Write it as a brief, warm, slightly wry update — like catching up with someone about how their plans
+actually unfolded — 150-200 words, past tense, second person ("you").
 Be specific — refer to the actual choices made below and show their realistic consequences.
 Show real trade-offs. Not purely positive, not purely negative.
 If the combination of choices was strategically weak, reflect that honestly but kindly.
 
-JONAS'S BACKGROUND:
+BACKGROUND:
 {OUTCOME_PROMPT_CONTEXT}
 
-THE ADVICE HE WAS GIVEN AND FOLLOWED:
+THE CHOICES MADE AND THE REASONING BEHIND THEM:
 {choices_summary}"""
             with st.spinner("Writing the follow-up..."):
                 outcome = call_claude(client, prompt, "Write the update now.", max_tokens=400)
